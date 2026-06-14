@@ -1,0 +1,82 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# ---- Dependencies ----
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# ---- Next.js ----
+/.next/
+/out/
+next-env.d.ts
+
+# ---- Production build ----
+/build
+/dist
+
+# ---- Testing / coverage ----
+/coverage
+/.nyc_output
+
+# ---- Playwright (used for verification) ----
+/test-results/
+/playwright-report/
+/playwright/.cache/
+/blob-report/
+
+# ---- TypeScript ----
+*.tsbuildinfo
+
+# ---- Environment variables ----
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+# Keep example/template env files tracked
+!.env.example
+
+# ---- Logs ----
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---- Caches ----
+.eslintcache
+.cache/
+.turbo/
+.swc/
+*.tsbuildinfo
+
+# ---- Editor / IDE ----
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# ---- OS files ----
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ---- Misc / secrets ----
+*.pem
+/tmp
