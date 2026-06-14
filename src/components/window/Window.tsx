@@ -105,7 +105,11 @@ export function Window({ win }: WindowProps) {
       aria-label={win.title}
       initial={reducedMotion ? false : { opacity: 0, scale: 0.92, y: 12 }}
       animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={reducedMotion ? undefined : { opacity: 0, scale: 0.92, y: 12 }}
+      exit={
+        reducedMotion
+          ? undefined
+          : { opacity: 0, scale: 0.94, transition: { duration: 0.13, ease: "easeIn" } }
+      }
       transition={
         reducedMotion
           ? { duration: 0 }

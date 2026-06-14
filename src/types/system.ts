@@ -29,6 +29,8 @@ export interface SystemSettings {
   accent: string;
   wallpaperId: string;
   reducedMotion: boolean;
+  /** Restore open windows + layout on launch (session restore). */
+  restoreWindows: boolean;
 }
 
 /**

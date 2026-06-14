@@ -8,6 +8,7 @@
  */
 
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type {
   WindowInstance,
   OpenWindowOptions,
@@ -21,12 +22,44 @@ import {
   DEFAULT_WINDOW_CONSTRAINTS,
   DEFAULT_WINDOW_SIZE,
   WINDOW_CASCADE_OFFSET,
+  TOPBAR_HEIGHT,
+  DOCK_HEIGHT,
 } from "@/core/constants";
 import {
   snapTargetRect,
   complementaryZone,
   type SnapTarget,
 } from "@/core/snap";
+
+/** A descriptor of a recently-closed window, for "reopen closed" (Ctrl+Shift+T). */
+interface ClosedWindow {
+  appId: string;
+  title: string;
+  icon?: string;
+  rect: Rect;
+  constraints: WindowInstance["constraints"];
+}
+
+/**
+ * Fit a target box to a window, respecting resizability: resizable windows fill
+ * the box (clamped to min size); fixed-size windows keep their size and center.
+ */
+function fitBounds(win: WindowInstance, box: Rect): Rect {
+  if (!win.constraints.resizable) {
+    return {
+      x: Math.round(box.x + (box.width - win.rect.width) / 2),
+      y: Math.max(0, Math.round(box.y + (box.height - win.rect.height) / 2)),
+      width: win.rect.width,
+      height: win.rect.height,
+    };
+  }
+  return {
+    x: Math.round(box.x),
+    y: Math.round(box.y),
+    width: Math.max(box.width, win.constraints.minWidth),
+    height: Math.max(box.height, win.constraints.minHeight),
+  };
+}
 
 /** Transient snap-assist prompt: pick a window to fill the empty half. */
 interface SnapAssistState {
@@ -45,6 +78,8 @@ interface WindowState {
   dragPreview: SnapTarget | null;
   /** Snap-assist prompt, shown after snapping a window to a half (transient). */
   snapAssist: SnapAssistState | null;
+  /** Stack of recently-closed windows for "reopen closed window". */
+  closedStack: ClosedWindow[];
 
   openWindow: (options: OpenWindowOptions) => string;
   closeWindow: (id: string) => void;
@@ -62,6 +97,16 @@ interface WindowState {
   setDragPreview: (target: SnapTarget | null) => void;
   /** Dismiss the snap-assist prompt. */
   clearSnapAssist: () => void;
+  /**
+   * Re-hydrate a restored session for the current viewport: re-snap snapped
+   * windows, clamp floating windows on-screen, and ensure a single focus.
+   * Called once when the desktop mounts.
+   */
+  restoreSession: () => void;
+  /** Close all windows and reset session state (used when restore is off). */
+  clearSession: () => void;
+  /** Reopen the most recently closed window at its previous location. */
+  reopenLast: () => void;
   /**
    * Place a window into an exact bounding box (used by the Workspace Builder's
    * tiling engine). Un-minimizes/un-maximizes the window first. Resizable
@@ -82,12 +127,15 @@ function cascadeRect(openedCount: number, size: { width: number; height: number 
   };
 }
 
-export const useWindowStore = create<WindowState>((set, get) => ({
+export const useWindowStore = create<WindowState>()(
+  persist(
+    (set, get) => ({
   windows: [],
   topZIndex: WINDOW_BASE_Z,
   openedCount: 0,
   dragPreview: null,
   snapAssist: null,
+  closedStack: [],
 
   openWindow: (options) => {
     const id = createId("win");
@@ -136,9 +184,25 @@ export const useWindowStore = create<WindowState>((set, get) => ({
   },
 
   closeWindow: (id) => {
-    set((state) => ({
-      windows: state.windows.filter((w) => w.id !== id),
-    }));
+    set((state) => {
+      const closing = state.windows.find((w) => w.id === id);
+      const closed: ClosedWindow[] = closing
+        ? [
+            {
+              appId: closing.appId,
+              title: closing.title,
+              icon: closing.icon,
+              rect: closing.restoreRect ?? closing.rect,
+              constraints: closing.constraints,
+            },
+            ...state.closedStack,
+          ].slice(0, 10)
+        : state.closedStack;
+      return {
+        windows: state.windows.filter((w) => w.id !== id),
+        closedStack: closed,
+      };
+    });
     eventBus.emit("window:close", { windowId: id });
   },
 
@@ -304,21 +368,7 @@ export const useWindowStore = create<WindowState>((set, get) => ({
         windows: state.windows.map((w) => {
           if (w.id !== id) return w;
           const flags = { minimized: false, maximized: false };
-          // Resizable windows fill the zone; fixed-size ones center within it.
-          const rect = !w.constraints.resizable
-            ? {
-                x: Math.round(box.x + (box.width - w.rect.width) / 2),
-                y: Math.max(0, Math.round(box.y + (box.height - w.rect.height) / 2)),
-                width: w.rect.width,
-                height: w.rect.height,
-              }
-            : {
-                x: Math.round(box.x),
-                y: Math.round(box.y),
-                width: Math.max(box.width, w.constraints.minWidth),
-                height: Math.max(box.height, w.constraints.minHeight),
-              };
-          return { ...w, flags, restoreRect, snapZone: target, rect };
+          return { ...w, flags, restoreRect, snapZone: target, rect: fitBounds(w, box) };
         }),
       };
     });
@@ -359,7 +409,74 @@ export const useWindowStore = create<WindowState>((set, get) => ({
 
   setDragPreview: (target) => set({ dragPreview: target }),
   clearSnapAssist: () => set({ snapAssist: null }),
-}));
+
+  restoreSession: () => {
+    if (typeof window === "undefined") return;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    set((state) => {
+      if (state.windows.length === 0) return state;
+      const maxZ = state.windows.reduce((m, w) => Math.max(m, w.zIndex), WINDOW_BASE_Z);
+      return {
+        topZIndex: Math.max(state.topZIndex, maxZ),
+        // Transient bits never survive a reload.
+        dragPreview: null,
+        snapAssist: null,
+        windows: state.windows.map((w) => {
+          // Single focus: the top-most non-minimized window.
+          const focused = w.zIndex === maxZ && !w.flags.minimized;
+          if (w.flags.maximized) return { ...w, focused };
+          if (w.snapZone) {
+            // Re-derive the snapped rect for the current viewport size.
+            return { ...w, focused, rect: fitBounds(w, snapTargetRect(w.snapZone)) };
+          }
+          // Floating: clamp on-screen and within the viewport.
+          const width = Math.min(w.rect.width, vw);
+          const height = Math.min(w.rect.height, vh - TOPBAR_HEIGHT - DOCK_HEIGHT);
+          const x = clamp(w.rect.x, 0, Math.max(0, vw - 120));
+          const y = clamp(w.rect.y, TOPBAR_HEIGHT, Math.max(TOPBAR_HEIGHT, vh - DOCK_HEIGHT - 60));
+          return { ...w, focused, rect: { x, y, width, height } };
+        }),
+      };
+    });
+  },
+
+  clearSession: () => {
+    set({
+      windows: [],
+      topZIndex: WINDOW_BASE_Z,
+      openedCount: 0,
+      dragPreview: null,
+      snapAssist: null,
+    });
+  },
+
+  reopenLast: () => {
+    const [last, ...rest] = get().closedStack;
+    if (!last) return;
+    set({ closedStack: rest });
+    get().openWindow({
+      appId: last.appId,
+      title: last.title,
+      icon: last.icon,
+      rect: last.rect,
+      constraints: last.constraints,
+    });
+  },
+    }),
+    {
+      name: "nexus.windows",
+      version: 1,
+      // Persist only the durable session state — never the transient UI bits.
+      partialize: (s) => ({
+        windows: s.windows,
+        topZIndex: s.topZIndex,
+        openedCount: s.openedCount,
+        closedStack: s.closedStack,
+      }),
+    },
+  ),
+);
 
 /** Helper used by resize handlers to keep a rect within sane screen bounds. */
 export function constrainPosition(

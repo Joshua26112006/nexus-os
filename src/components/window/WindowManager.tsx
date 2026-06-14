@@ -28,10 +28,21 @@ export function WindowManager() {
   // (← left, → right, ↑ maximize, ↓ restore/minimize).
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      const st = useWindowStore.getState();
+
+      // Ctrl+Shift+T — reopen the most recently closed window.
+      if (e.ctrlKey && e.shiftKey && (e.key === "T" || e.key === "t")) {
+        if (st.closedStack.length > 0) {
+          e.preventDefault();
+          st.reopenLast();
+        }
+        return;
+      }
+
+      // Ctrl+Alt+Arrows — snap the focused window.
       if (!e.ctrlKey || !e.altKey) return;
       const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"];
       if (!keys.includes(e.key)) return;
-      const st = useWindowStore.getState();
       const focused = st.windows.find((w) => w.focused && !w.flags.minimized);
       if (!focused) return;
       e.preventDefault();

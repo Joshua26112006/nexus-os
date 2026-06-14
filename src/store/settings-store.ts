@@ -20,6 +20,7 @@ interface SettingsState extends SystemSettings {
   setAccent: (accent: string) => void;
   setWallpaper: (wallpaperId: string) => void;
   setReducedMotion: (reducedMotion: boolean) => void;
+  setRestoreWindows: (restoreWindows: boolean) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -29,6 +30,7 @@ export const useSettingsStore = create<SettingsState>()(
       accent: DEFAULT_ACCENT,
       wallpaperId: DEFAULT_WALLPAPER_ID,
       reducedMotion: false,
+      restoreWindows: true,
 
       setTheme: (theme) => {
         set({ theme });
@@ -45,6 +47,10 @@ export const useSettingsStore = create<SettingsState>()(
       setReducedMotion: (reducedMotion) => {
         set({ reducedMotion });
         eventBus.emit("settings:changed", { key: "reducedMotion" });
+      },
+      setRestoreWindows: (restoreWindows) => {
+        set({ restoreWindows });
+        eventBus.emit("settings:changed", { key: "restoreWindows" });
       },
     }),
     {

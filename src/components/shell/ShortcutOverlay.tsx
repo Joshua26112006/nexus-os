@@ -25,6 +25,7 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
       ["Drag title to edge", "Snap window (½ / ¼ / max)"],
       ["Ctrl + Alt + ← →", "Snap window left / right"],
       ["Ctrl + Alt + ↑ ↓", "Maximize / restore"],
+      ["Ctrl + Shift + T", "Reopen closed window"],
       ["Double-click title", "Maximize / restore"],
       ["Drag edges/corners", "Resize window"],
     ],

@@ -37,6 +37,8 @@ export function SettingsApp() {
   const setWallpaper = useSettingsStore((s) => s.setWallpaper);
   const reducedMotion = useSettingsStore((s) => s.reducedMotion);
   const setReducedMotion = useSettingsStore((s) => s.setReducedMotion);
+  const restoreWindows = useSettingsStore((s) => s.restoreWindows);
+  const setRestoreWindows = useSettingsStore((s) => s.setRestoreWindows);
   const resetFileSystem = useVfsStore((s) => s.resetFileSystem);
 
   return (
@@ -111,31 +113,20 @@ export function SettingsApp() {
 
       {/* Preferences */}
       <Section title="Preferences">
-        <label className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
-          <span className="text-sm">
-            Reduce motion
-            <span className="block text-xs text-text-muted">
-              Minimize animations across the OS.
-            </span>
-          </span>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={reducedMotion}
-            onClick={() => setReducedMotion(!reducedMotion)}
-            className={cn(
-              "relative h-6 w-11 rounded-full transition",
-              reducedMotion ? "bg-accent" : "bg-border",
-            )}
-          >
-            <span
-              className={cn(
-                "absolute top-0.5 h-5 w-5 rounded-full bg-white transition",
-                reducedMotion ? "left-[22px]" : "left-0.5",
-              )}
-            />
-          </button>
-        </label>
+        <div className="space-y-2">
+          <Toggle
+            label="Reduce motion"
+            description="Minimize animations across the OS."
+            checked={reducedMotion}
+            onChange={() => setReducedMotion(!reducedMotion)}
+          />
+          <Toggle
+            label="Restore windows on launch"
+            description="Reopen your windows and layout exactly as you left them."
+            checked={restoreWindows}
+            onChange={() => setRestoreWindows(!restoreWindows)}
+          />
+        </div>
       </Section>
 
       {/* Desktop & Ambient — Phase 5 living-desktop controls. */}
@@ -175,6 +166,46 @@ function Section({ title, children }: { title: string; children: React.ReactNode
       </h2>
       {children}
     </section>
+  );
+}
+
+/** A labelled on/off switch row. */
+function Toggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: () => void;
+}) {
+  return (
+    <label className="flex items-center justify-between rounded-lg border border-border px-4 py-3">
+      <span className="text-sm">
+        {label}
+        <span className="block text-xs text-text-muted">{description}</span>
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label={label}
+        onClick={onChange}
+        className={cn(
+          "relative h-6 w-11 shrink-0 rounded-full transition",
+          checked ? "bg-accent" : "bg-border",
+        )}
+      >
+        <span
+          className={cn(
+            "absolute top-0.5 h-5 w-5 rounded-full bg-white transition",
+            checked ? "left-[22px]" : "left-0.5",
+          )}
+        />
+      </button>
+    </label>
   );
 }
 
