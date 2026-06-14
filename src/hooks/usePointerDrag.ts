@@ -14,6 +14,9 @@ import { useCallback, useRef } from "react";
 interface DragDelta {
   dx: number;
   dy: number;
+  /** Absolute pointer position in viewport coordinates. */
+  x: number;
+  y: number;
 }
 
 interface UsePointerDragOptions {
@@ -25,7 +28,7 @@ interface UsePointerDragOptions {
 export function usePointerDrag({ onStart, onMove, onEnd }: UsePointerDragOptions) {
   const origin = useRef<{ x: number; y: number } | null>(null);
   const frame = useRef<number | null>(null);
-  const latest = useRef<DragDelta>({ dx: 0, dy: 0 });
+  const latest = useRef<DragDelta>({ dx: 0, dy: 0, x: 0, y: 0 });
 
   const handlePointerDown = useCallback(
     (e: React.PointerEvent) => {
@@ -41,6 +44,8 @@ export function usePointerDrag({ onStart, onMove, onEnd }: UsePointerDragOptions
         latest.current = {
           dx: ev.clientX - origin.current.x,
           dy: ev.clientY - origin.current.y,
+          x: ev.clientX,
+          y: ev.clientY,
         };
         if (frame.current === null) {
           frame.current = requestAnimationFrame(() => {
@@ -51,9 +56,13 @@ export function usePointerDrag({ onStart, onMove, onEnd }: UsePointerDragOptions
       };
 
       const handleUp = () => {
+        // Flush the final frame so the last pointer position is always applied
+        // before the drag ends (otherwise an rAF-throttled move can be dropped
+        // on release — e.g. the frame that reaches a snap zone).
         if (frame.current !== null) {
           cancelAnimationFrame(frame.current);
           frame.current = null;
+          onMove(latest.current);
         }
         origin.current = null;
         window.removeEventListener("pointermove", handleMove);

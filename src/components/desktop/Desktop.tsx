@@ -29,14 +29,23 @@ import { AchievementToast } from "@/components/achievements/AchievementToast";
 import { registerSystemCommands } from "@/services/commands/system-commands";
 import { initAchievements } from "@/store/achievement-store";
 import { useEnvironmentStore } from "@/store/environment-store";
+import { useWindowStore } from "@/store/window-store";
+import { useSettingsStore } from "@/store/settings-store";
 
 export function Desktop() {
   const tickFromClock = useEnvironmentStore((s) => s.tickFromClock);
 
-  // Register OS commands and achievement tracking once when the desktop mounts.
+  // Register OS commands and achievement tracking, and restore the previous
+  // session (open windows + layout) — all once when the desktop mounts.
   useEffect(() => {
     registerSystemCommands();
     initAchievements();
+    const win = useWindowStore.getState();
+    if (useSettingsStore.getState().restoreWindows) {
+      win.restoreSession();
+    } else {
+      win.clearSession();
+    }
   }, []);
 
   // Advance the day/night cycle from the real clock every minute.

@@ -1,23 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, JetBrains_Mono } from "next/font/google";
+// Self-hosted variable fonts (bundled via @fontsource — no build-time network
+// fetch, so the production build never depends on Google Fonts being reachable).
+import "@fontsource-variable/inter";
+import "@fontsource-variable/jetbrains-mono";
 import "./globals.css";
-
-/**
- * Modern typography (Phase 4). Inter for UI, JetBrains Mono for the terminal
- * and tabular/code surfaces. Exposed as CSS variables consumed by globals.css
- * and the Tailwind font tokens.
- */
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-sans",
-  display: "swap",
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ["latin"],
-  variable: "--font-mono",
-  display: "swap",
-});
 
 export const metadata: Metadata = {
   title: "NEXUS OS — The AI-native operating system",
@@ -40,9 +26,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${jetbrainsMono.variable} dark`}>
-        {children}
-      </body>
+      <body className="dark">{children}</body>
     </html>
   );
 }

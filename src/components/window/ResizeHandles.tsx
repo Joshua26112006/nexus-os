@@ -44,9 +44,11 @@ function applyResize(start: Rect, dir: ResizeDirection, dx: number, dy: number):
 interface ResizeHandlesProps {
   rect: Rect;
   onResize: (rect: Rect) => void;
+  /** Notified when a resize gesture starts (true) and ends (false). */
+  onActiveChange?: (active: boolean) => void;
 }
 
-export function ResizeHandles({ rect, onResize }: ResizeHandlesProps) {
+export function ResizeHandles({ rect, onResize, onActiveChange }: ResizeHandlesProps) {
   return (
     <>
       {DIRECTIONS.map(({ dir, className }) => (
@@ -56,6 +58,7 @@ export function ResizeHandles({ rect, onResize }: ResizeHandlesProps) {
           className={className}
           rect={rect}
           onResize={onResize}
+          onActiveChange={onActiveChange}
         />
       ))}
     </>
@@ -67,11 +70,13 @@ function Handle({
   className,
   rect,
   onResize,
+  onActiveChange,
 }: {
   dir: ResizeDirection;
   className: string;
   rect: Rect;
   onResize: (rect: Rect) => void;
+  onActiveChange?: (active: boolean) => void;
 }) {
   // Snapshot the rect at drag start so deltas apply to a stable origin.
   const startRect = useRef<Rect>(rect);
@@ -79,9 +84,13 @@ function Handle({
   const onPointerDown = usePointerDrag({
     onStart: () => {
       startRect.current = rect;
+      onActiveChange?.(true);
     },
     onMove: ({ dx, dy }) => {
       onResize(applyResize(startRect.current, dir, dx, dy));
+    },
+    onEnd: () => {
+      onActiveChange?.(false);
     },
   });
 
