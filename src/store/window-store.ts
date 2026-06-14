@@ -12,6 +12,7 @@ import type {
   WindowInstance,
   OpenWindowOptions,
   Rect,
+  SnapZone,
 } from "@/types";
 import { eventBus } from "@/core/event-bus";
 import { createId, clamp } from "@/core/utils";
@@ -21,6 +22,18 @@ import {
   DEFAULT_WINDOW_SIZE,
   WINDOW_CASCADE_OFFSET,
 } from "@/core/constants";
+import {
+  snapTargetRect,
+  complementaryZone,
+  type SnapTarget,
+} from "@/core/snap";
+
+/** Transient snap-assist prompt: pick a window to fill the empty half. */
+interface SnapAssistState {
+  fillZone: SnapZone;
+  /** The window that was just snapped (excluded from the picker). */
+  sourceId: string;
+}
 
 interface WindowState {
   windows: WindowInstance[];
@@ -28,6 +41,10 @@ interface WindowState {
   topZIndex: number;
   /** Count of windows opened, used to cascade new window positions. */
   openedCount: number;
+  /** Live snap-zone preview shown while dragging a title bar (transient). */
+  dragPreview: SnapTarget | null;
+  /** Snap-assist prompt, shown after snapping a window to a half (transient). */
+  snapAssist: SnapAssistState | null;
 
   openWindow: (options: OpenWindowOptions) => string;
   closeWindow: (id: string) => void;
@@ -37,6 +54,14 @@ interface WindowState {
   restoreWindow: (id: string) => void;
   moveWindow: (id: string, position: { x: number; y: number }) => void;
   resizeWindow: (id: string, rect: Rect) => void;
+  /** Snap a window to a zone (or maximize); records floating geometry. */
+  snapWindow: (id: string, target: SnapTarget) => void;
+  /** Restore a snapped/maximized window to its floating geometry. */
+  restoreFloating: (id: string) => void;
+  /** Set/clear the live drag preview zone. */
+  setDragPreview: (target: SnapTarget | null) => void;
+  /** Dismiss the snap-assist prompt. */
+  clearSnapAssist: () => void;
   /**
    * Place a window into an exact bounding box (used by the Workspace Builder's
    * tiling engine). Un-minimizes/un-maximizes the window first. Resizable
@@ -61,6 +86,8 @@ export const useWindowStore = create<WindowState>((set, get) => ({
   windows: [],
   topZIndex: WINDOW_BASE_Z,
   openedCount: 0,
+  dragPreview: null,
+  snapAssist: null,
 
   openWindow: (options) => {
     const id = createId("win");
@@ -91,6 +118,7 @@ export const useWindowStore = create<WindowState>((set, get) => ({
       constraints: { ...DEFAULT_WINDOW_CONSTRAINTS, ...options.constraints },
       zIndex: nextZ,
       focused: true,
+      snapZone: null,
     };
 
     set((state) => ({
@@ -154,18 +182,21 @@ export const useWindowStore = create<WindowState>((set, get) => ({
       windows: state.windows.map((w) => {
         if (w.id !== id) return w;
         if (w.flags.maximized) {
-          // Restore to the pre-maximize geometry.
+          // Restore to the pre-maximize geometry; also clear any snap.
           return {
             ...w,
             rect: w.restoreRect ?? w.rect,
             restoreRect: null,
+            snapZone: null,
             flags: { ...w.flags, maximized: false },
           };
         }
-        // Maximize: snapshot current rect so we can restore later.
+        // Maximize: snapshot floating geometry once (preserve it if the window
+        // is currently snapped, so restore returns to the true floating size).
         return {
           ...w,
-          restoreRect: w.rect,
+          restoreRect: w.snapZone ? w.restoreRect : w.rect,
+          snapZone: null,
           flags: { ...w.flags, maximized: true },
         };
       }),
@@ -179,11 +210,24 @@ export const useWindowStore = create<WindowState>((set, get) => ({
 
   moveWindow: (id, position) => {
     set((state) => ({
-      windows: state.windows.map((w) =>
-        w.id === id && !w.flags.maximized
-          ? { ...w, rect: { ...w.rect, x: position.x, y: position.y } }
-          : w,
-      ),
+      windows: state.windows.map((w) => {
+        if (w.id !== id || w.flags.maximized) return w;
+        // Dragging a snapped window un-snaps it: restore its floating size and
+        // let it follow the cursor (matching native OS behaviour).
+        if (w.snapZone && w.restoreRect) {
+          return {
+            ...w,
+            snapZone: null,
+            rect: {
+              x: position.x,
+              y: position.y,
+              width: w.restoreRect.width,
+              height: w.restoreRect.height,
+            },
+          };
+        }
+        return { ...w, rect: { ...w.rect, x: position.x, y: position.y } };
+      }),
     }));
   },
 
@@ -231,6 +275,90 @@ export const useWindowStore = create<WindowState>((set, get) => ({
       }),
     }));
   },
+
+  snapWindow: (id, target) => {
+    set((state) => {
+      const win = state.windows.find((w) => w.id === id);
+      if (!win) return state;
+      // Snapshot floating geometry once (don't overwrite if already snapped/max).
+      const restoreRect =
+        win.snapZone || win.flags.maximized ? win.restoreRect : win.rect;
+
+      if (target === "maximize") {
+        return {
+          windows: state.windows.map((w) =>
+            w.id === id
+              ? {
+                  ...w,
+                  restoreRect,
+                  snapZone: null,
+                  flags: { minimized: false, maximized: true },
+                }
+              : w,
+          ),
+        };
+      }
+
+      const box = snapTargetRect(target);
+      return {
+        windows: state.windows.map((w) => {
+          if (w.id !== id) return w;
+          const flags = { minimized: false, maximized: false };
+          // Resizable windows fill the zone; fixed-size ones center within it.
+          const rect = !w.constraints.resizable
+            ? {
+                x: Math.round(box.x + (box.width - w.rect.width) / 2),
+                y: Math.max(0, Math.round(box.y + (box.height - w.rect.height) / 2)),
+                width: w.rect.width,
+                height: w.rect.height,
+              }
+            : {
+                x: Math.round(box.x),
+                y: Math.round(box.y),
+                width: Math.max(box.width, w.constraints.minWidth),
+                height: Math.max(box.height, w.constraints.minHeight),
+              };
+          return { ...w, flags, restoreRect, snapZone: target, rect };
+        }),
+      };
+    });
+
+    get().focusWindow(id);
+
+    // Offer snap-assist when snapping to a half and other windows are available.
+    if (target === "left" || target === "right") {
+      const fillZone = complementaryZone(target);
+      const others = get().windows.filter(
+        (w) => w.id !== id && !w.flags.minimized,
+      );
+      if (fillZone && others.length > 0) {
+        set({ snapAssist: { fillZone, sourceId: id } });
+      } else {
+        set({ snapAssist: null });
+      }
+    } else {
+      set({ snapAssist: null });
+    }
+  },
+
+  restoreFloating: (id) => {
+    set((state) => ({
+      windows: state.windows.map((w) => {
+        if (w.id !== id) return w;
+        const rect = w.restoreRect ?? w.rect;
+        return {
+          ...w,
+          snapZone: null,
+          restoreRect: null,
+          flags: { ...w.flags, maximized: false, minimized: false },
+          rect,
+        };
+      }),
+    }));
+  },
+
+  setDragPreview: (target) => set({ dragPreview: target }),
+  clearSnapAssist: () => set({ snapAssist: null }),
 }));
 
 /** Helper used by resize handlers to keep a rect within sane screen bounds. */

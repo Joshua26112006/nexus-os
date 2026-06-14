@@ -28,6 +28,19 @@ export interface WindowFlags {
 }
 
 /**
+ * A screen region a window can be snapped into by dragging it to an edge/corner
+ * or via keyboard shortcuts. `maximize` is handled via the maximized flag, not
+ * stored here.
+ */
+export type SnapZone =
+  | "left"
+  | "right"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
+/**
  * A managed window. `appId` references the app it hosts; in Phase 1 there are
  * no real apps yet, so windows render placeholder content.
  */
@@ -38,12 +51,14 @@ export interface WindowInstance {
   icon?: string;
   /** Current geometry while floating (restored to this when un-maximized). */
   rect: Rect;
-  /** Geometry snapshot taken before maximizing, to restore on un-maximize. */
+  /** Geometry snapshot taken before maximizing/snapping, to restore later. */
   restoreRect: Rect | null;
   flags: WindowFlags;
   constraints: WindowConstraints;
   zIndex: number;
   focused: boolean;
+  /** The snap region this window currently occupies, if any. */
+  snapZone: SnapZone | null;
 }
 
 /** The eight directions a window edge/corner can be resized from. */

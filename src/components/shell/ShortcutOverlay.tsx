@@ -22,9 +22,11 @@ const GROUPS: { title: string; items: [string, string][] }[] = [
   {
     title: "Windows",
     items: [
-      ["Drag title bar", "Move window"],
-      ["Drag edges/corners", "Resize window"],
+      ["Drag title to edge", "Snap window (½ / ¼ / max)"],
+      ["Ctrl + Alt + ← →", "Snap window left / right"],
+      ["Ctrl + Alt + ↑ ↓", "Maximize / restore"],
       ["Double-click title", "Maximize / restore"],
+      ["Drag edges/corners", "Resize window"],
     ],
   },
   {

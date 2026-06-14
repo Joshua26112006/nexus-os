@@ -12,13 +12,14 @@
  * translates pointer interactions into store calls and renders current state.
  */
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { motion } from "framer-motion";
 import type { WindowInstance, Rect } from "@/types";
 import { useWindowStore } from "@/store/window-store";
 import { useSettingsStore } from "@/store/settings-store";
 import { usePointerDrag } from "@/hooks/usePointerDrag";
 import { DOCK_HEIGHT, TITLEBAR_HEIGHT, TOPBAR_HEIGHT } from "@/core/constants";
+import { detectSnapZone, type SnapTarget } from "@/core/snap";
 import { ResizeHandles } from "./ResizeHandles";
 import { WindowContent } from "./WindowContent";
 import { cn } from "@/core/utils";
@@ -34,22 +35,45 @@ export function Window({ win }: WindowProps) {
   const toggleMaximize = useWindowStore((s) => s.toggleMaximize);
   const moveWindow = useWindowStore((s) => s.moveWindow);
   const resizeWindow = useWindowStore((s) => s.resizeWindow);
+  const snapWindow = useWindowStore((s) => s.snapWindow);
+  const setDragPreview = useWindowStore((s) => s.setDragPreview);
+  const clearSnapAssist = useWindowStore((s) => s.clearSnapAssist);
   const reducedMotion = useSettingsStore((s) => s.reducedMotion);
 
   // Snapshot position at drag start so deltas apply to a stable origin.
   const dragStart = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  // The snap zone under the cursor on the most recent drag frame.
+  const pendingSnap = useRef<SnapTarget | null>(null);
+  // True while dragging/resizing — suppresses the smooth geometry transition.
+  const [interacting, setInteracting] = useState(false);
 
   const onTitlePointerDown = usePointerDrag({
     onStart: () => {
       focusWindow(win.id);
       dragStart.current = { x: win.rect.x, y: win.rect.y };
+      pendingSnap.current = null;
+      setInteracting(true);
     },
-    onMove: ({ dx, dy }) => {
+    onMove: ({ dx, dy, x, y }) => {
       if (win.flags.maximized) return;
       moveWindow(win.id, {
         x: dragStart.current.x + dx,
         y: Math.max(0, dragStart.current.y + dy),
       });
+      // Live snap preview based on the absolute pointer position.
+      const zone = detectSnapZone(x, y);
+      if (zone !== pendingSnap.current) {
+        pendingSnap.current = zone;
+        setDragPreview(zone);
+      }
+    },
+    onEnd: () => {
+      setDragPreview(null);
+      setInteracting(false);
+      if (pendingSnap.current) {
+        snapWindow(win.id, pendingSnap.current);
+        pendingSnap.current = null;
+      }
     },
   });
 
@@ -94,11 +118,18 @@ export function Window({ win }: WindowProps) {
           ? "0 32px 64px -16px rgb(2 6 23 / 0.65), 0 0 0 1px rgb(var(--color-accent) / 0.35), 0 0 40px -8px rgb(var(--color-accent) / 0.35)"
           : undefined,
       }}
-      onPointerDown={() => focusWindow(win.id)}
+      onPointerDown={() => {
+        focusWindow(win.id);
+        clearSnapAssist();
+      }}
       className={cn(
         "absolute flex flex-col overflow-hidden rounded-window border text-text shadow-window",
         "bg-surface/90 backdrop-blur-xl",
         win.focused ? "border-white/10" : "border-white/5 opacity-95",
+        // Animate snap/keyboard repositioning, but not while actively dragging
+        // or resizing (which must track the cursor 1:1).
+        !interacting && !reducedMotion &&
+          "transition-[left,top,width,height] duration-200 ease-os",
       )}
     >
       {/* Title bar — glassy, with a subtle top sheen. */}
@@ -155,7 +186,11 @@ export function Window({ win }: WindowProps) {
       </div>
 
       {win.constraints.resizable && !win.flags.maximized && (
-        <ResizeHandles rect={win.rect} onResize={handleResize} />
+        <ResizeHandles
+          rect={win.rect}
+          onResize={handleResize}
+          onActiveChange={setInteracting}
+        />
       )}
     </motion.div>
   );
